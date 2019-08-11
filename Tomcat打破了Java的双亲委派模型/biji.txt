@@ -1,0 +1,158 @@
+1. Java类加载器
+1) BootstrapClassLoader 启动类加载器，用C语言实现，用来加载JVM启动时所需要的核心类（核心jar包），比如rt.jar, resource.jar等
+2）ExtClassLoader 是扩展类加载器，用来加载\jres\lib\ext目录下的包
+3）AppClassLoader 是系统类加载器，用来加载classpath下的类，应用用它来默认加载类
+4) 自定义类加载器，用来加载自定义路径下的类
+这些类加载器虽然有层级关系，但是并不是通过继承关系实现的，而是通过parent变量指向上级类加载器。比如AppClassLoader的成员变量parent指向了ExtClassLoader.所以，如果要自定义类加载器，不是去继承AppClassLoader，而是继承ClassLoader,复写findClass()和loadClass()方法，并把parent指向父加载器。
+关键代码如下：
+public abstract class ClassLoader {
+
+    // 每个类加载器都有个父加载器
+    private final ClassLoader parent;
+    
+    public Class<?> loadClass(String name) {
+  
+        // 查找一下这个类是不是已经加载过了
+        Class<?> c = findLoadedClass(name);
+        
+        // 如果没有加载过
+        if( c == null ){
+          // 先委托给父加载器去加载，注意这是个递归调用
+          if (parent != null) {
+              c = parent.loadClass(name);
+          }else {
+              // 如果父加载器为空，查找 Bootstrap 加载器是不是加载过了
+              c = findBootstrapClassOrNull(name);
+          }
+        }
+        // 如果父加载器没加载成功，调用自己的 findClass 去加载
+        if (c == null) {
+            c = findClass(name);
+        }
+        
+        return c；
+    }
+    
+    protected Class<?> findClass(String name){
+       //1. 根据传入的类名 name，到在特定目录下去寻找类文件，把.class 文件读入内存
+          ...
+          
+       //2. 调用 defineClass 将字节数组转成 Class 对象
+       return defineClass(buf, off, len)；
+    }
+    
+    // 将字节码数组解析成一个 Class 对象，用 native 方法实现
+    protected final Class<?> defineClass(byte[] b, int off, int len){
+       ...
+    }
+}
+
+2. 什么是双亲委派模型？
+如上代码所示，先委托父加载器去加载，没有再自己加载，这就是Java的双亲委派模型。
+
+
+3. Tomcat自定义的类加载器WebAppClassLoader打破了Java的双亲委派模型，它首先自己去加载某个类，如果找不到再代理给父加载器。 其实也是复写了findClass和LoadClass两个方法。
+public Class<?> findClass(String name) throws ClassNotFoundException {
+    ...
+    
+    Class<?> clazz = null;
+    try {
+            //1. 先在 Web 应用目录下查找类 
+            clazz = findClassInternal(name);
+    }  catch (RuntimeException e) {
+           throw e;
+       }
+    
+    if (clazz == null) {
+    try {
+            //2. 如果在本地目录没有找到，交给父加载器去查找
+            clazz = super.findClass(name);
+    }  catch (RuntimeException e) {
+           throw e;
+       }
+    
+    //3. 如果父类也没找到，抛出 ClassNotFoundException
+    if (clazz == null) {
+        throw new ClassNotFoundException(name);
+     }
+
+    return clazz;
+}
+
+public Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+
+    synchronized (getClassLoadingLock(name)) {
+ 
+        Class<?> clazz = null;
+
+        //1. 先在本地 cache 查找该类是否已经加载过
+        clazz = findLoadedClass0(name);
+        if (clazz != null) {
+            if (resolve)
+                resolveClass(clazz);
+            return clazz;
+        }
+
+        //2. 从系统类加载器的 cache 中查找是否加载过
+        clazz = findLoadedClass(name);
+        if (clazz != null) {
+            if (resolve)
+                resolveClass(clazz);
+            return clazz;
+        }
+
+        // 3. 尝试用 ExtClassLoader 类加载器类加载，为什么？防止Tomcat自己写的类覆盖了ExtClassLoader或BootstrapClassLoader中加载的类。
+        ClassLoader javaseLoader = getJavaseClassLoader();
+        try {
+            clazz = javaseLoader.loadClass(name);
+            if (clazz != null) {
+                if (resolve)
+                    resolveClass(clazz);
+                return clazz;
+            }
+        } catch (ClassNotFoundException e) {
+            // Ignore
+        }
+
+        // 4. 尝试在本地目录搜索 class 并加载
+        try {
+            clazz = findClass(name);
+            if (clazz != null) {
+                if (resolve)
+                    resolveClass(clazz);
+                return clazz;
+            }
+        } catch (ClassNotFoundException e) {
+            // Ignore
+        }
+
+        // 5. 尝试用系统类加载器 (也就是 AppClassLoader) 来加载
+            try {
+                clazz = Class.forName(name, false, parent);
+                if (clazz != null) {
+                    if (resolve)
+                        resolveClass(clazz);
+                    return clazz;
+                }
+            } catch (ClassNotFoundException e) {
+                // Ignore
+            }
+       }
+    
+    //6. 上述过程都加载失败，抛出异常
+    throw new ClassNotFoundException(name);
+}
+
+4.Tomcat是如何隔离Web应用的？
+1）Tomcat中两个Web应用中有同名的Servlet是怎么隔离的？
+一个Context组件就对应一个Web应用，不同的Context有自己的WebAppClassloader实例，不同的实例加载的类即使名字一样，也会被认为是不同的类，相当于内部有一个一个隔离的空间。
+2）两个Web应用都依赖于同一个jar包，如何避免重复加载？
+Tomcat为WebAppClassLoader设置了父加载器SharedClassLoader，如果WebAppClassLoader自己目录下没有加载到该类，就会去父加载器中去加载，SharedClassLoader会在指定目录下加载共享类，之后返回给WebAppClassLoader，这样就解决了共享问题。
+3）需要隔离Web应用的类和Tomcat本身的类。
+Tomcat设计了一个CatalinaClassLoader，用来加载自己的类，改类加载器和SharedClassLoader是兄弟关系，因此它们能隔离，这样就隔离了Tomcat自身的类和Web应用的类。
+
+5.Spring的加载问题
+Spring有自己的类加载器要去加载定义的各个bean（也就是业务类）, 但是Spring本身是在SharedClassLoader中被加载的，而各个bean并不在SharedClassLoader的加载路径下，而是在Web应用目录下，那么Spring的类加载器怎么加载到各个bean的？
+这时候就要用到线程上下文加载器，这个加载器保存线程私有数据里，只要是同一个线程，一旦设置了线程上下文加载器，在线程后续执行过程中就能把这个类加载器取出来用。
+这样Spring在启动时就将线程上下文加载器取出来，用来加载Bean:
+cl = Thread.currentThread().getContextClassLoader();
