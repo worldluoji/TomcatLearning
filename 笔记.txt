@@ -18,6 +18,7 @@ servlet-demo1/WEB-INF/classes/MyServlet.class
 6. 将servlet-dmeo1复制到tomcat\webapps下进行部署
 7. tomcat\bin\startup.bak启动tomcat， 通过http://localhost:8080/servlet-demo1/myservlet 即可访访问
 8. @WebServlet("/myAnnotationServlet) 注解也可以配置Servletle1, 这时候就不用web.xml了
+项目启动时先启动监听器，再启动过滤器。
 
 二. Tomcat和Jetty都是按照Servlet规范实现的Servlet容器，同时也具有Http服务器的功能。 
 Java程序员只需要编写业务逻辑代码，并将对应的Servlet部署到Tomcat即可，其它的事Tomcat帮你搞定。
