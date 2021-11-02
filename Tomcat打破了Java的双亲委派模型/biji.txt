@@ -1,5 +1,5 @@
 1. Java类加载器
-1) BootstrapClassLoader 启动类加载器，用C语言实现，用来加载JVM启动时所需要的核心类（核心jar包），比如rt.jar, resource.jar等
+1)  BootstrapClassLoader 启动类加载器，用C语言实现，用来加载JVM启动时所需要的核心类（核心jar包），比如rt.jar, resource.jar等
 2）ExtClassLoader 是扩展类加载器，用来加载\jres\lib\ext目录下的包
 3）AppClassLoader 是系统类加载器，用来加载classpath下的类，应用用它来默认加载类
 4) 自定义类加载器，用来加载自定义路径下的类
@@ -149,7 +149,7 @@ public Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundExce
 2）两个Web应用都依赖于同一个jar包，如何避免重复加载？
 Tomcat为WebAppClassLoader设置了父加载器SharedClassLoader，如果WebAppClassLoader自己目录下没有加载到该类，就会去父加载器中去加载，SharedClassLoader会在指定目录下加载共享类，之后返回给WebAppClassLoader，这样就解决了共享问题。
 3）需要隔离Web应用的类和Tomcat本身的类。
-Tomcat设计了一个CatalinaClassLoader，用来加载自己的类，改类加载器和SharedClassLoader是兄弟关系，因此它们能隔离，这样就隔离了Tomcat自身的类和Web应用的类。
+Tomcat设计了一个CatalinaClassLoader，用来加载自己的类，该类加载器和SharedClassLoader是兄弟关系，因此它们能隔离，这样就隔离了Tomcat自身的类和Web应用的类。它们还有共同的parent CommonClassLoader, 这样，加载的类可被tomcat server和所有webapp共同使用。
 
 5.Spring的加载问题
 Spring有自己的类加载器要去加载定义的各个bean（也就是业务类）, 但是Spring本身是在SharedClassLoader中被加载的，而各个bean并不在SharedClassLoader的加载路径下，而是在Web应用目录下，那么Spring的类加载器怎么加载到各个bean的？
